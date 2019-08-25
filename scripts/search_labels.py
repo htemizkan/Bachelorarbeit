@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+#  -*- coding: utf-8 -*-
 import requests
 import cloudinary.uploader
 import nltk
@@ -8,18 +9,27 @@ import os
 from bs4 import BeautifulSoup
 from nltk.tokenize import WordPunctTokenizer
 from nltk.corpus import stopwords
+from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from collections import Counter
+
 
 try:
     from Tkinter import IntVar, Tk
 except ImportError:
     from tkinter import IntVar, Tk
 
-IMG_PATH = 'example8.jpg'
+DEBUG = False
+OBJECT_SIMILARITY = 0.3
+IMG_PATH = 'instant_noodles_0.jpeg'
 CLOUD_NAME = 'dezwtgmni'
 UPLOAD_PRESET = 'wesjjhxl'
 IMAGE_SEARCH_URL = 'https://www.google.com/searchbyimage?image_url='
+
+# Choose 1 for parsing text information from image addresses and
+# Choose 2 for parsing information from image urls
+# First option is more accurate but also slower.
+DEFAULT_SEARCH_TYPE = 2
 
 # faking a browser client
 HEADERS = {
@@ -29,7 +39,20 @@ HEADERS = {
 IRRELEVANT_TOKENS = ["www", "http", "https", "com", "net", "org",
                      "biz", "info", "pro", "name", "edu", "gov",
                      "co", "uk", "us", "de", "at", "html",
-                     "twitter", "youtube", "status", "pinterest", "ebay", "shpock", "imgur"]
+                     "twitter", "youtube", "status", "pinterest", "ebay", "shpock",
+                     "imgur", "the", "en", "png", "x", "o",
+                     "photo", "photos", "image", "images", "wood", "jpg",
+                     "color", "product", "products", "tripadvisor", "wood", "color",
+                     "paint", "hashtag", "tag", "label", "vintage", "shutterstock",
+                     "shop", "category", "aliexpress", "search", "htm", "spar",
+                     "detail", "details", "amazon", "stock", "blog", "facebook",
+                     "flickr", "china", "mm", "cm", "item", "io", "collection",
+                     "bio", "fr", "plastic", "reddit", "pk", "ml",
+                     "foundation","instagram","post",
+                     "issue", "|", "/", "-", "\\", "~",
+                     "\\\"", "page", "shopping", "picture", "yahoo", "value",
+                     "param"
+                     ]
 
 
 class SearchEngine(object):
@@ -56,35 +79,45 @@ class SearchEngine(object):
             root = top
             progress = kwargs['progress']
 
-        print(self.img_path)
-
         # Run the main job here
         image = self.open_img()
         img_b = self._img_to_bytecode(image)
         if(progress):
             progress.set(10)
+            #root.searchProgressbar.update_idletasks()
         img_url = self._upload_img(img_b)
         if(progress):
             progress.set(40)
+            #root.searchProgressbar.update_idletasks()
         html_received = self._search_img(img_url)
         if(progress):
             progress.set(60)
-        img_urls = self._parse_img_urls(html_received)
-        self._redirect(html_received)
-        nouns_ranked = self._pos_process(img_urls)
+            #root.searchProgressbar.update_idletasks()
+        if DEFAULT_SEARCH_TYPE == 1:
+            img_text = self._parse_img_text(html_received)
+            nouns = self._pos_process_text(img_text)
+        elif DEFAULT_SEARCH_TYPE == 2:
+            img_urls = self._parse_img_urls(html_received)
+            nouns = self._pos_process_urls(img_urls)
+        else:
+            print("Given search type is not valid!")
+            return
+
         if(progress):
             progress.set(80)
+            #root.searchProgressbar.update_idletasks()
         mrr = self._parse_most_likely_label(html_received)
-        labels = self._get_human_labels(nouns_ranked, mrr)
+        labels = self._get_human_labels(nouns, mrr)
         if(progress):
             progress.set(100)
-
-        print("Most likely Human Labels for " + self.img_path + " are : "
-                                                                 "\n1." + labels[0] +
-              "\n2." + labels[1] +
-              "\n3." + labels[2] +
-              "\n4." + labels[3] +
-              "\n5." + labels[4])
+            #root.searchProgressbar.update_idletasks()
+        if len(labels) >= 5:
+            print("Most likely Human Labels for " + self.img_path + " are : " +
+                  "\n1." + labels[0] +
+                  "\n2." + labels[1] +
+                  "\n3." + labels[2] +
+                  "\n4." + labels[3] +
+                  "\n5." + labels[4])
 
         result = Result()
         result.fileName = os.path.basename(self.img_path)
@@ -92,24 +125,57 @@ class SearchEngine(object):
 
         return result
 
-    def _pos_process(self, text):
+    def _pos_process_text(self, text):
+        # Removing non-ascii characters
+        text_utf8 = self._remove_non_ascii(text)
+        # Tokenizing the text
+        tokens = self._tokenize(text_utf8)
+        # Converting all characters to lower case
+        tokens_lc = self._to_lower_case(tokens)
+        # Removing stopwords from language
+        tokens_wo_sw = self._remove_stopwords(tokens_lc)
+        # POS tag
+        tokens_pt = self._pos_tag_tokens(tokens_wo_sw)
+        # Getting nouns
+        nouns = self._get_nouns(tokens_pt)
+        # Lemmatize
+        result = self._lemmatize_tokens(nouns)
+        # Remove tokens shorter than 3 characters
+        result = self._remove_shorter_tokens(result, 2)
+        # Removing predefined set of expressions from tokens
+        result = self._remove_irrelevant_tokens(result)
+        # Remove non-english words
+        result = self._remove_if_not_en(result)
+        # Getting words more likely to be object
+        result = [w for w in result \
+             if self._is_object(w)]
+        return result
+
+    def _pos_process_urls(self, text):
         # Cleaning the text from unnecessary characters and expressions (regex)
-        text_re = self._re_filter(text)
+        text_re = self._re_filter_url(text)
         # Tokenizing the text
         tokens = self._tokenize(text_re)
         # Converting all characters to lower case
         tokens_lc = self._to_lower_case(tokens)
         # Removing stopwords from language
         tokens_wo_sw = self._remove_stopwords(tokens_lc)
-        # Removing predefined expressions from tokens
+        # Removing predefined set of expressions from tokens
         tokens_clean = self._remove_irrelevant_tokens(tokens_wo_sw)
-        # Lemmatize
-        tokens_lemmatized = self._lemmatize_tokens(tokens_clean)
         # POS tag
-        tokens_pt = self._pos_tag_tokens(tokens_lemmatized)
+        tokens_pt = self._pos_tag_tokens(tokens_clean)
         # Getting nouns
         nouns = self._get_nouns(tokens_pt)
-        return nouns
+        # Lemmatize
+        nouns = self._lemmatize_tokens(nouns)
+        # Remove tokens shorter than 3 characters
+        nouns = self._remove_shorter_tokens(nouns, 2)
+        # Remove non-english words
+        result = self._remove_if_not_en(nouns)
+        # Getting words more likely to be object
+        result = [w for w in result \
+                    if self._is_object(w)]
+        return result
 
     def open_img(self):
         try:
@@ -117,8 +183,7 @@ class SearchEngine(object):
                 img = image.read()
                 return img
         except IOError:
-            print("Oops! Opening the " + self.img_path + "wasn't successfull.")
-        # *******************************polish this part!
+            print("Oops! Opening the " + self.img_path + " wasn't successfull.")
         return None
 
     def _img_to_bytecode(self, image):
@@ -137,19 +202,29 @@ class SearchEngine(object):
         result = requests.get(request_url, headers=HEADERS)
         return result
 
-    def _redirect(self, html):
+    def _parse_img_text(self, html):
+        result = ''
         soup = BeautifulSoup(html.text, 'lxml')
-        #match = soup.find('input', class_='e2BEnf U7izfe')['value']
-        #match = ''
-        #match = soup.find('input', class_='ui-card-header')['href']
-        #print('similar images url : ' + match)
+        match = soup.find('a', class_='iu-card-header').get('href')
+        request_url = "https://www.google.com" + match
+        print('Requesting :' + request_url)
+        si_html = requests.get(request_url, headers=HEADERS)
+        soup = BeautifulSoup(si_html.text, 'lxml')
+
+        for img_tag in soup.find_all('div', class_='mVDMnf nJGrxf'):
+            if img_tag.text:
+                if DEBUG:
+                    print("found image text! : " + img_tag.text)
+                result += (img_tag.text + "\n")
+        return result
 
     def _parse_most_likely_label(self, html):
         # parsing html with beautifulsoup
         soup = BeautifulSoup(html.text, 'lxml')
         # access a variable of that class like a dictionary
         match = soup.find('input', class_='gLFyf gsfi')['value']
-        print("Most likely result :  " + match)
+        if DEBUG:
+            print("Most likely result :  " + match)
         return match
 
     # Parse the image urls from similar images
@@ -160,24 +235,41 @@ class SearchEngine(object):
         for img_tag in soup.find_all('img', class_='rISBZc M4dUYb'):
             if img_tag.get('title'):
                 img_url = img_tag.get('title')
-                print("found! : " + img_url)
+                if DEBUG:
+                    print("found! : " + img_url)
                 match += (img_url + "\n")
         return match
 
-    def _re_filter(self, text):
+    def _re_filter_url(self, text):
         result = re.sub("[\W\d_]", " ", text)
-        #print(result)
+        if DEBUG:
+            print('Result after cleaning url: '),
+            print(result)
+        return result
+
+    def _remove_non_ascii(self, text):
+        result = re.sub("[^\x00-\x7F]+", "", text)
+        if DEBUG:
+            print('Result after removing non-ASCII expressions: '),
+            print(result)
+        return result
+
+    def _remove_non_unicode(self, text):
+        result = re.sub("[^\x00-\x7F]+", "", text)
+        if DEBUG:
+            print('Result after removing non-unicode expressions: '),
+            print(result)
         return result
 
     def _tokenize(self, text):
         tk = WordPunctTokenizer()
         result = tk.tokenize(text)
-        #print(result)
+        if DEBUG:
+            print("Result after tokenizing: "),
+            print(result)
         return result
 
     def _to_lower_case(self, tokens):
-        # asagidakinin kisaca yapilmis hali boyle birsey ama nedense calismiyor.
-        # return [].append([w.lower() for w in text])
         result = []
         for w in tokens:
             result.append(w.lower())
@@ -187,27 +279,63 @@ class SearchEngine(object):
         stopword = stopwords.words('english')
         result = [word for word in tokens if word not in stopword]
         print("Removing Stopwords...")
-        #print(result)
+        if DEBUG:
+            print('Result after removing stopwords: '),
+            print(result)
         return result
 
     def _remove_irrelevant_tokens(self, tokens):
-        result = [word for word in tokens if word not in IRRELEVANT_TOKENS]
         print("Removing irrelevant tokens...")
-        for word in result:
-            # POLISH THE CODE *************************************************************************************************************
-            if len(word) < 2:
-                result.remove(word)
+        result = [word for word in tokens if word not in IRRELEVANT_TOKENS]
         return result
+
+    def _remove_shorter_tokens(self, tokens, max_length):
+        result = []
+        for word in tokens:
+            if len(word) > max_length or word == '.' or word == '...':
+                result.append(word)
+        return result
+
+    def _remove_if_not_en(self, tokens):
+        words = set(nltk.corpus.words.words())
+        result = [w for w in tokens \
+                 if w.lower() in words or not w.isalpha()]
+        if DEBUG:
+            print('Result after non-english words removed: '),
+            print(result)
+        return result
+
+    def _is_object(self, word):
+        wn_lemmas = set(wordnet.all_lemma_names())
+        lemmatizer = WordNetLemmatizer()
+        word = lemmatizer.lemmatize(word)
+        str_var = "".join(word + ".n.01")
+        if word in wn_lemmas and str_var in [syn.name() for syn in wordnet.synsets(word)]:
+            w = wordnet.synset(str_var)
+            object = wordnet.synset("object.n.01")
+            if object.wup_similarity(w) >= OBJECT_SIMILARITY:
+                return True
+            else:
+                return False
+        return False
+
 
     def _lemmatize_tokens(self, tokens):
         wordnet_lemmatizer = WordNetLemmatizer()
         print("Lemmatizing tokens...")
-        result = [wordnet_lemmatizer.lemmatize(word) for word in tokens]
+        result_unicode = [wordnet_lemmatizer.lemmatize(word, pos="n") for word in tokens]
+        result = [x.encode('utf-8') for x in result_unicode]
+        if DEBUG:
+            print("Result after Lemmatizing: "),
+            print(result)
         return result
 
     def _pos_tag_tokens(self, tokens):
         print("POS Tagging...")
         result = nltk.pos_tag(tokens)
+        if DEBUG:
+            print("POS tagging result: "),
+            print(result)
         return result
 
     def _get_nouns(self, dictionary):
@@ -216,11 +344,11 @@ class SearchEngine(object):
         return result
 
     def _get_human_labels(self, words, most_relevant_word):
-        # POLISH THE CODE *****************************************************************************************************************
         result = [w[0] for w in Counter(words).most_common(5)]
-
         if most_relevant_word not in result:
-            result.insert(0, most_relevant_word)
+            if(result):
+                result.pop()
+                result.insert(0, most_relevant_word)
         else:
             result.remove(most_relevant_word)
             result.insert(0, most_relevant_word)
@@ -232,7 +360,6 @@ class Result:
 
 
 def main():
-    # Call your main functions here including run()
     se = SearchEngine()
     se.run()
 

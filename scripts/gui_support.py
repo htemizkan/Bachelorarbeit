@@ -25,6 +25,7 @@ import math
 import json
 
 FILE_TYPES = [("jpeg",".jpeg"),("gif",".gif"),("png",".png"),("jpg",".jpg")]
+DEBUG = False
 
 def set_Tk_var():
     global searchProgress
@@ -72,18 +73,19 @@ def browseImageClick():
 
     if(filePath):
         if os.path.isfile(filePath):
-            print("Yes this is a file")
+            if DEBUG:
+                print("Yes this is a file")
             for t in FILE_TYPES:
                 for e in t:
                     if e is imghdr.what(filePath):
-                        print("yes this is an image file!")
+                        if DEBUG:
+                            print("yes this is an image file!")
                         imgPath.set(filePath)
                         show_image(filePath)
     sys.stdout.flush()
 
 def show_image(filePath):
     global imageFile
-    #imageFile = tk.PhotoImage(file=filePath)
 
     image = Image.open(filePath)
     image = image.resize((300, 300), Image.ANTIALIAS)  ## The (300, 300) is (height, width)
@@ -103,7 +105,7 @@ def exportTreeClick():
 
     tree_to_string(start_node, w.resultsScrolledtreeview)
 
-    f.write(''.join(text))
+    f.write(''.join([x.encode('utf-8') for x in text]))
     f.close()
 
     sys.stdout.flush()
@@ -130,9 +132,6 @@ def tree_to_dict(parent, tree, node):
     nd = tree.item(parent)
     n_text = nd['text']
 
-    #if bool(nd['value'])
-    #    n_type = nd['value'][1]
-
     if parent != "" :
         n_type = nd['values'][1]
         if n_type == 'directory':
@@ -154,7 +153,8 @@ def tree_to_string(parent, tree, indent=''):
     n_text = nd['text']
 
     if parent != "" :
-        print("+" + n_text)
+        if DEBUG:
+            print("+" + n_text)
         text.append("+" + n_text + "\n")
 
     shift = math.ceil(math.log10(len(n_text))) \
@@ -164,13 +164,15 @@ def tree_to_string(parent, tree, indent=''):
     for child in tree.get_children(parent)[:-1]:
         nd = tree.item(child)
         n_text = nd['text']
-        print(indent + '|' + '-' * 4),
+        if DEBUG:
+            print(indent + '|' + '-' * 4),
         text.append(indent + '|' + '-' * 4)
         tree_to_string(child, tree, indent + '|' + ' ' * 4)
 
     if(tree.get_children(parent)):
         child = tree.get_children(parent)[-1]
-        print(indent + '`' + '-' * 4),
+        if DEBUG:
+            print(indent + '`' + '-' * 4),
         text.append(indent + '`' + '-' * 4)
         tree_to_string(child, tree, indent + ' ' * 4)
 
@@ -197,6 +199,7 @@ def searchWithDirectory(path,node):
         str_var = path + '/' + f
         fPaths.append(os.path.join(path,f))
 
+    imCount = 0
     for f in fPaths:
         if isImage(f):
          imCount += 1
@@ -206,6 +209,8 @@ def searchWithDirectory(path,node):
         if isImage(f):
             results.append(se.run(path=f))
             w.searchProgressbar['value'] = (w.searchProgressbar['value'] + int(100 / imCount))
+            w.searchProgressbar.update_idletasks()
+            #root.update()
         else:
             print("No image found")
 
@@ -219,14 +224,16 @@ def searchWithDirectory(path,node):
 
 def isImage(file):
     if os.path.isfile(file):
-        print("Yes this is a file")
+        if DEBUG:
+            print("Yes this is a file")
         for t in FILE_TYPES:
             for e in t:
                 if e is imghdr.what(file):
                     return True
     else:
-        print("This one is a problem : " + file)
-        print("This is not a valid image file!")
+        if DEBUG:
+            print("This one is a problem : " + file)
+            print("This is not a valid image file or is a folder!")
         return False
 
 def searchWithImageClick():
@@ -248,23 +255,22 @@ def drop(event):
     print("new path:" + path)
 
     if os.path.isdir(path):
-        print("yes this is a directory")
+        if DEBUG:
+            print("yes this is a directory")
         dirPath.set(path)
         show_image("folder_big.gif")
     elif os.path.isfile(path):
-        print("Yes this is a file")
+        if DEBUG:
+            print("Yes this is a file")
         for t in FILE_TYPES:
             for e in t:
                 if e is imghdr.what(path):
-                    print("yes this is an image file!")
+                    if DEBUG:
+                        print("yes this is an image file!")
                     imgPath.set(path)
                     show_image(path)
     else:
         print("This is not an image or directory!")
-
-    #w.dragAndDropImageLabel.configure(image=imageFile)
-    #print('Data:', event.data)
-    #print_event_info(event)
 
 def replace_cbracets(data):
     return data.replace("{", "").replace("}", "")
@@ -273,12 +279,10 @@ def escape_whitespace(path):
     list = []
     for x in split(path):
         if x.isspace():
-            print " yes it is a space"
             list.append("\\" + x)
 
         else:
             list.append(x)
-    print("result path : " + ''.join(list))
     return ''.join(list)
 
 def split(word):
@@ -290,7 +294,7 @@ def init(top, gui, *args, **kwargs):
     top_level = top
     root = top
 
-    #added initialize main program
+    # initialize main program
     global se
     se = search_labels.SearchEngine()
 
@@ -313,13 +317,8 @@ def insert_results(results, dir_name, **kwargs):
     folder_node = w.resultsScrolledtreeview.insert(node, "end", text=os.path.basename(dir_name), values = [ dir_name, 'directory'], image=folderIcon)
     # Level 2
     for result in results:
-        if(isinstance(result, list)):
-            #insert_results(result, dir_name, node = folder_node)
-            pass
-        else:
-            insert_result(result, node = folder_node)
-
-    print("folder node : " + folder_node)
+        if(not isinstance(result, list)):
+            insert_result(result, node=folder_node)
     return folder_node
 
 
