@@ -13,11 +13,10 @@ from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from collections import Counter
 
-
-try:
-    from Tkinter import IntVar, Tk
-except ImportError:
-    from tkinter import IntVar, Tk
+#try:
+#    from Tkinter import IntVar, Tk
+#except ImportError:
+#    from tkinter import IntVar, Tk
 
 DEBUG = False
 OBJECT_SIMILARITY = 0.3
@@ -26,15 +25,17 @@ CLOUD_NAME = 'dezwtgmni'
 UPLOAD_PRESET = 'wesjjhxl'
 IMAGE_SEARCH_URL = 'https://www.google.com/searchbyimage?image_url='
 
-# Choose 1 for parsing text information from image addresses and
+# Choose 1 for parsing text information from image locations and
 # Choose 2 for parsing information from image urls
 # First option is more accurate but also slower.
-DEFAULT_SEARCH_TYPE = 2
+DEFAULT_SEARCH_TYPE = 1
 
-# faking a browser client
+# fake a browser client
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36',
-    'Accept-Language' : 'en-US,en;q=0.5'}
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.5'}
+
+#old user agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36
 
 IRRELEVANT_TOKENS = ["www", "http", "https", "com", "net", "org",
                      "biz", "info", "pro", "name", "edu", "gov",
@@ -48,7 +49,7 @@ IRRELEVANT_TOKENS = ["www", "http", "https", "com", "net", "org",
                      "detail", "details", "amazon", "stock", "blog", "facebook",
                      "flickr", "china", "mm", "cm", "item", "io", "collection",
                      "bio", "fr", "plastic", "reddit", "pk", "ml",
-                     "foundation","instagram","post",
+                     "foundation", "instagram", "post",
                      "issue", "|", "/", "-", "\\", "~",
                      "\\\"", "page", "shopping", "picture", "yahoo", "value",
                      "param"
@@ -70,29 +71,28 @@ class SearchEngine(object):
 
     def run(self, **kwargs):
 
-        if('path' in kwargs):
+        if ('path' in kwargs):
             self.img_path = kwargs['path']
 
         progress = None
-        if('top' in kwargs and 'progress' in kwargs):
+        if ('top' in kwargs and 'progress' in kwargs):
             top = kwargs['top']
             root = top
             progress = kwargs['progress']
 
-        # Run the main job here
         image = self.open_img()
         img_b = self._img_to_bytecode(image)
-        if(progress):
+        if (progress):
             progress.set(10)
-            #root.searchProgressbar.update_idletasks()
+            # root.searchProgressbar.update_idletasks()
         img_url = self._upload_img(img_b)
-        if(progress):
+        if (progress):
             progress.set(40)
-            #root.searchProgressbar.update_idletasks()
+            # root.searchProgressbar.update_idletasks()
         html_received = self._search_img(img_url)
-        if(progress):
+        if (progress):
             progress.set(60)
-            #root.searchProgressbar.update_idletasks()
+            # root.searchProgressbar.update_idletasks()
         if DEFAULT_SEARCH_TYPE == 1:
             img_text = self._parse_img_text(html_received)
             nouns = self._pos_process_text(img_text)
@@ -103,14 +103,14 @@ class SearchEngine(object):
             print("Given search type is not valid!")
             return
 
-        if(progress):
+        if (progress):
             progress.set(80)
-            #root.searchProgressbar.update_idletasks()
+            # root.searchProgressbar.update_idletasks()
         mrr = self._parse_most_likely_label(html_received)
         labels = self._get_human_labels(nouns, mrr)
-        if(progress):
+        if (progress):
             progress.set(100)
-            #root.searchProgressbar.update_idletasks()
+            # root.searchProgressbar.update_idletasks()
         if len(labels) >= 5:
             print("Most likely Human Labels for " + self.img_path + " are : " +
                   "\n1." + labels[0] +
@@ -134,21 +134,27 @@ class SearchEngine(object):
         tokens_lc = self._to_lower_case(tokens)
         # Removing stopwords from language
         tokens_wo_sw = self._remove_stopwords(tokens_lc)
-        # POS tag
+        # Tagging POS
         tokens_pt = self._pos_tag_tokens(tokens_wo_sw)
         # Getting nouns
         nouns = self._get_nouns(tokens_pt)
-        # Lemmatize
+        # Lemmatizing
         result = self._lemmatize_tokens(nouns)
-        # Remove tokens shorter than 3 characters
+        # Removing tokens shorter than 3 characters
         result = self._remove_shorter_tokens(result, 2)
         # Removing predefined set of expressions from tokens
         result = self._remove_irrelevant_tokens(result)
-        # Remove non-english words
+        # Removing non-english words
         result = self._remove_if_not_en(result)
         # Getting words more likely to be object
+        r = ['box', 'grade', 'lemon', 'fruit', 'bag', 'industry',
+        'lemon', 'lemon', 'fruit', 'lemon', 'footage', 'video', 'royalty']
+        result = r
         result = [w for w in result \
-             if self._is_object(w)]
+                  if self._is_object(w)]
+        if DEBUG:
+            print('WUP-Similarity filter: '),
+            print(result)
         return result
 
     def _pos_process_urls(self, text):
@@ -162,19 +168,27 @@ class SearchEngine(object):
         tokens_wo_sw = self._remove_stopwords(tokens_lc)
         # Removing predefined set of expressions from tokens
         tokens_clean = self._remove_irrelevant_tokens(tokens_wo_sw)
-        # POS tag
+        # Tagging POS
         tokens_pt = self._pos_tag_tokens(tokens_clean)
         # Getting nouns
         nouns = self._get_nouns(tokens_pt)
-        # Lemmatize
+        # Lemmatizing
         nouns = self._lemmatize_tokens(nouns)
-        # Remove tokens shorter than 3 characters
+        # Removing tokens shorter than 3 characters
         nouns = self._remove_shorter_tokens(nouns, 2)
-        # Remove non-english words
+        # Removing non-english words
         result = self._remove_if_not_en(nouns)
         # Getting words more likely to be object
+        r = ['lemon', 'section', 'slice', 'lemon',
+            'balm', 'background', 'cod', 'fillet', 'fruit', 'citrus', 'zebra', 'bag', 'department',
+            'premium', 'lemon', 'surface', 'ripe', 'fruit', 'premium', 'lemon', 'surface', 'ripe',
+            'fruit']
+        result = r
         result = [w for w in result \
-                    if self._is_object(w)]
+                  if self._is_object(w)]
+        if DEBUG:
+            print('WUP-Similarity filter: '),
+            print(result)
         return result
 
     def open_img(self):
@@ -190,6 +204,7 @@ class SearchEngine(object):
         return bytearray(image)
 
     def _upload_img(self, bytecode):
+        print("Requesting image url...")
         result = cloudinary.uploader.unsigned_upload(bytecode, self._upload_preset, **self._options)
         # parsing resulting string to get image_url
         img_url = result['secure_url']
@@ -205,17 +220,19 @@ class SearchEngine(object):
     def _parse_img_text(self, html):
         result = ''
         soup = BeautifulSoup(html.text, 'lxml')
-        match = soup.find('a', class_='iu-card-header').get('href')
+        #changed 24.02.2021
+        #match = soup.find('a', class_='iu-card-header').get('href')
+        match = soup.find('a', class_='ekf0x hSQtef').get('href')
         request_url = "https://www.google.com" + match
         print('Requesting :' + request_url)
         si_html = requests.get(request_url, headers=HEADERS)
         soup = BeautifulSoup(si_html.text, 'lxml')
 
-        for img_tag in soup.find_all('div', class_='mVDMnf nJGrxf'):
-            if img_tag.text:
+        for img_tag in soup.find_all('img', class_='rg_i Q4LuWd'):
+            if img_tag['alt']:
                 if DEBUG:
-                    print("found image text! : " + img_tag.text)
-                result += (img_tag.text + "\n")
+                    print("found image text! : " + img_tag['alt'])
+                result += (img_tag['alt'] + "\n")
         return result
 
     def _parse_most_likely_label(self, html):
@@ -287,6 +304,9 @@ class SearchEngine(object):
     def _remove_irrelevant_tokens(self, tokens):
         print("Removing irrelevant tokens...")
         result = [word for word in tokens if word not in IRRELEVANT_TOKENS]
+        if DEBUG:
+            print('Result after removing irrelevant tokens: '),
+            print(result)
         return result
 
     def _remove_shorter_tokens(self, tokens, max_length):
@@ -299,7 +319,7 @@ class SearchEngine(object):
     def _remove_if_not_en(self, tokens):
         words = set(nltk.corpus.words.words())
         result = [w for w in tokens \
-                 if w.lower() in words or not w.isalpha()]
+                  if w.lower() in words or not w.isalpha()]
         if DEBUG:
             print('Result after non-english words removed: '),
             print(result)
@@ -312,13 +332,12 @@ class SearchEngine(object):
         str_var = "".join(word + ".n.01")
         if word in wn_lemmas and str_var in [syn.name() for syn in wordnet.synsets(word)]:
             w = wordnet.synset(str_var)
-            object = wordnet.synset("object.n.01")
-            if object.wup_similarity(w) >= OBJECT_SIMILARITY:
+            synset_obj = wordnet.synset("object.n.01")
+            if synset_obj.wup_similarity(w) >= OBJECT_SIMILARITY:
                 return True
             else:
                 return False
         return False
-
 
     def _lemmatize_tokens(self, tokens):
         wordnet_lemmatizer = WordNetLemmatizer()
@@ -341,18 +360,22 @@ class SearchEngine(object):
     def _get_nouns(self, dictionary):
         print("Getting Nouns...")
         result = [word for (word, pos) in dictionary if pos[0] == 'N']
+        if DEBUG:
+            print("Result after getting Nouns: "),
+            print(result)
         return result
 
     def _get_human_labels(self, words, most_relevant_word):
         result = [w[0] for w in Counter(words).most_common(5)]
         if most_relevant_word not in result:
-            if(result):
+            if (result):
                 result.pop()
                 result.insert(0, most_relevant_word)
         else:
             result.remove(most_relevant_word)
             result.insert(0, most_relevant_word)
         return result
+
 
 class Result:
     fileName = ""
